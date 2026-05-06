@@ -1,0 +1,10 @@
+{
+	"id": "obsidian-selection-highlighter",
+	"name": "Selection Highlighter",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Automatically wrap selected text in highlight markers (==…==). Perfect for stylus or touch use where you want a single gesture to highlight text.",
+	"author": "jacksonsdean",
+	"authorUrl": "https://github.com/jacksonsdean/obsidian-selection-highlighter",
+	"isDesktopOnly": false
+}
