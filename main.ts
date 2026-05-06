@@ -57,6 +57,7 @@ export default class SelectionHighlighterPlugin extends Plugin {
   private tabBarButton: HTMLButtonElement | null = null;
   private styleEl: HTMLStyleElement | null = null;
   private lastAppliedKey = "";
+  private lastAppliedFilePath = "";
   private lastAppliedAt = 0;
 
   async onload() {
@@ -343,8 +344,10 @@ export default class SelectionHighlighterPlugin extends Plugin {
     );
     if (!edit) return;
 
-    const key = `${view.file?.path ?? ""}:${edit.fromOffset}:${edit.toOffset}:${edit.replacement}`;
+    const filePath = view.file?.path ?? "";
+    const key = `${filePath}:${edit.fromOffset}:${edit.toOffset}:${edit.replacement}`;
     if (
+      filePath === this.lastAppliedFilePath &&
       key === this.lastAppliedKey &&
       Date.now() - this.lastAppliedAt < DUPLICATE_OPERATION_THRESHOLD_MS
     ) {
@@ -360,6 +363,7 @@ export default class SelectionHighlighterPlugin extends Plugin {
         editor.offsetToPos(edit.fromOffset + edit.replacement.length),
       );
       this.lastAppliedKey = key;
+      this.lastAppliedFilePath = filePath;
       this.lastAppliedAt = Date.now();
     } finally {
       Promise.resolve().then(() => {
@@ -525,7 +529,7 @@ export default class SelectionHighlighterPlugin extends Plugin {
     }
 
     new Notice(
-      "Unable to locate the selected text in the source note. This can happen when rendered text differs from the Markdown source.",
+      "Unable to locate the selected text in the source note. This can happen when rendered text differs from the Markdown source; try Source or Live Preview mode for precise highlighting.",
     );
     return null;
   }
@@ -594,6 +598,11 @@ export default class SelectionHighlighterPlugin extends Plugin {
     return -1;
   }
 
+  /**
+   * Wraps a selection in highlight markers. When expanding a highlight over a
+   * larger source-mode selection, `stripExistingHighlights` removes existing
+   * marker pairs inside the selection before adding the new outer pair.
+   */
   private wrapSelectedText(selection: string, stripExistingHighlights = false) {
     const leadLen = selection.length - selection.trimStart().length;
     const trailLen = selection.length - selection.trimEnd().length;
