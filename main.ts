@@ -65,6 +65,8 @@ export default class SelectionHighlighterPlugin extends Plugin {
 
     // ----- Status / toggle UI -----
     this.statusBarItem = this.addStatusBarItem();
+    this.styleEl = document.createElement("style");
+    document.head.appendChild(this.styleEl);
     this.updateHighlightStyles();
     this.updateToggleButton();
 
@@ -424,7 +426,11 @@ export default class SelectionHighlighterPlugin extends Plugin {
 
     const prefixRange = range.cloneRange();
     prefixRange.selectNodeContents(container);
-    prefixRange.setEnd(range.startContainer, range.startOffset);
+    try {
+      prefixRange.setEnd(range.startContainer, range.startOffset);
+    } catch {
+      return null;
+    }
 
     return {
       text: selection.toString(),
@@ -532,7 +538,7 @@ export default class SelectionHighlighterPlugin extends Plugin {
     }
 
     new Notice(
-      "Unable to locate the selected text in the Markdown source. This can happen when rendered text differs from the Markdown source; try Source or Live Preview mode for precise highlighting.",
+      "Unable to locate selected text in source. Try Source or Live Preview mode for precise highlighting.",
     );
     return null;
   }
@@ -660,10 +666,7 @@ export default class SelectionHighlighterPlugin extends Plugin {
   }
 
   private updateHighlightStyles() {
-    if (!this.styleEl) {
-      this.styleEl = document.createElement("style");
-      document.head.appendChild(this.styleEl);
-    }
+    if (!this.styleEl) return;
 
     const color = this.sanitizeColor(this.settings.highlightColor);
     document.body.style.setProperty("--selection-highlighter-color", color);
