@@ -136,6 +136,7 @@ export default class SelectionHighlighterPlugin extends Plugin {
     this.cancelPending();
     this.removeRibbonButton();
     this.removeTabBarButton();
+    document.body.style.removeProperty("--selection-highlighter-color");
     this.styleEl?.remove();
   }
 
@@ -222,6 +223,8 @@ export default class SelectionHighlighterPlugin extends Plugin {
       this.removeTabBarButton();
       return;
     }
+
+    if (!this.app.workspace.layoutReady) return;
 
     const tabBar = document.querySelector<HTMLElement>(
       ".workspace-tab-header-container",
@@ -529,7 +532,7 @@ export default class SelectionHighlighterPlugin extends Plugin {
     }
 
     new Notice(
-      "Unable to locate the selected text in the source note. This can happen when rendered text differs from the Markdown source; try Source or Live Preview mode for precise highlighting.",
+      "Unable to locate the selected text in the Markdown source. This can happen when rendered text differs from the Markdown source; try Source or Live Preview mode for precise highlighting.",
     );
     return null;
   }
@@ -663,11 +666,12 @@ export default class SelectionHighlighterPlugin extends Plugin {
     }
 
     const color = this.sanitizeColor(this.settings.highlightColor);
+    document.body.style.setProperty("--selection-highlighter-color", color);
     this.styleEl.textContent = `
 body .markdown-rendered mark,
 body .markdown-preview-view mark,
 body .cm-highlight {
-background-color: ${color};
+background-color: var(--selection-highlighter-color);
 color: inherit;
 }
 `;
@@ -815,7 +819,7 @@ class SelectionHighlighterSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Show toggle button")
       .setDesc(
-        "Show a clickable button that displays the current selection-highlighter state.",
+        "Show a clickable button that displays the current selection highlighting state.",
       )
       .addToggle((toggle) =>
         toggle
