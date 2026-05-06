@@ -231,10 +231,10 @@ export default class SelectionHighlighterPlugin extends Plugin {
       this.removeTabBarButton();
       this.tabBarButton = document.createElement("button");
       this.tabBarButton.type = "button";
-      this.tabBarButton.addClasses([
+      this.tabBarButton.classList.add(
         "clickable-icon",
         "selection-highlighter-toggle-button",
-      ]);
+      );
       this.tabBarButton.onclick = () => this.setEnabled(!this.settings.enabled);
       tabBar.appendChild(this.tabBarButton);
     }
@@ -465,7 +465,10 @@ export default class SelectionHighlighterPlugin extends Plugin {
     return {
       fromOffset,
       toOffset,
-      replacement: this.wrapSelectedText(selectedText),
+      replacement: this.wrapSelectedText(
+        selectedText,
+        this.settings.repeatedSelectionBehavior === "expand",
+      ),
     };
   }
 
@@ -521,7 +524,9 @@ export default class SelectionHighlighterPlugin extends Plugin {
       };
     }
 
-    new Notice("Could not find the reading-mode selection in the source note.");
+    new Notice(
+      "Unable to locate the selected text in the source note. This can happen when rendered text differs from the Markdown source.",
+    );
     return null;
   }
 
@@ -589,12 +594,14 @@ export default class SelectionHighlighterPlugin extends Plugin {
     return -1;
   }
 
-  private wrapSelectedText(selection: string) {
+  private wrapSelectedText(selection: string, stripExistingHighlights = false) {
     const leadLen = selection.length - selection.trimStart().length;
     const trailLen = selection.length - selection.trimEnd().length;
     const leading = selection.slice(0, leadLen);
     const trailing = trailLen > 0 ? selection.slice(-trailLen) : "";
-    const trimmed = selection.trim().split("==").join("");
+    const trimmed = stripExistingHighlights
+      ? this.stripHighlightMarkerPairs(selection.trim())
+      : selection.trim();
 
     return `${leading}==${trimmed}==${trailing}`;
   }
@@ -606,7 +613,34 @@ export default class SelectionHighlighterPlugin extends Plugin {
     const trailing = trailLen > 0 ? selection.slice(-trailLen) : "";
     const trimmed = selection.trim();
 
+    if (!this.isMarked(trimmed)) return selection;
+
     return `${leading}${trimmed.slice(2, -2)}${trailing}`;
+  }
+
+  private stripHighlightMarkerPairs(text: string) {
+    let result = "";
+    let fromIndex = 0;
+
+    while (fromIndex < text.length) {
+      const start = text.indexOf("==", fromIndex);
+      if (start === -1) {
+        result += text.slice(fromIndex);
+        break;
+      }
+
+      const end = text.indexOf("==", start + 2);
+      if (end === -1) {
+        result += text.slice(fromIndex);
+        break;
+      }
+
+      result += text.slice(fromIndex, start);
+      result += text.slice(start + 2, end);
+      fromIndex = end + 2;
+    }
+
+    return result;
   }
 
   private isMarked(text: string) {
@@ -785,22 +819,24 @@ class SelectionHighlighterSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
-      .setName("Toggle button location")
-      .setDesc("Choose where the optional toggle button appears.")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOptions({
-            "status-bar": "Status bar",
-            ribbon: "Ribbon",
-            "tab-bar": "Tab bar",
-          })
-          .setValue(this.plugin.settings.toggleButtonLocation)
-          .onChange(async (value: ToggleButtonLocation) => {
-            this.plugin.settings.toggleButtonLocation = value;
-            await this.plugin.saveSettings();
-            this.plugin.updateToggleButton();
-          }),
-      );
+    if (this.plugin.settings.showToggleButton) {
+      new Setting(containerEl)
+        .setName("Toggle button location")
+        .setDesc("Choose where the optional toggle button appears.")
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOptions({
+              "status-bar": "Status bar",
+              ribbon: "Ribbon",
+              "tab-bar": "Tab bar",
+            })
+            .setValue(this.plugin.settings.toggleButtonLocation)
+            .onChange(async (value: ToggleButtonLocation) => {
+              this.plugin.settings.toggleButtonLocation = value;
+              await this.plugin.saveSettings();
+              this.plugin.updateToggleButton();
+            }),
+        );
+    }
   }
 }
