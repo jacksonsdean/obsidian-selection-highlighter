@@ -1,0 +1,19 @@
+# Build output
+main.js
+main.js.map
+
+# Dependencies
+node_modules/
+
+# TypeScript caches
+*.tsbuildinfo
+
+# macOS
+.DS_Store
+
+# Editor directories
+.idea/
+.vscode/
+
+# Obsidian local config (when the repo lives inside a vault)
+.obsidian/
