@@ -43,6 +43,8 @@ const DEFAULT_SETTINGS: SelectionHighlighterSettings = {
 
 const HIGHLIGHT_ICON = "highlighter";
 const DEFAULT_HIGHLIGHT_COLOR = "#ffff00";
+const DUPLICATE_OPERATION_THRESHOLD_MS = 1000;
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 export default class SelectionHighlighterPlugin extends Plugin {
   settings: SelectionHighlighterSettings;
@@ -342,7 +344,10 @@ export default class SelectionHighlighterPlugin extends Plugin {
     if (!edit) return;
 
     const key = `${view.file?.path ?? ""}:${edit.fromOffset}:${edit.toOffset}:${edit.replacement}`;
-    if (key === this.lastAppliedKey && Date.now() - this.lastAppliedAt < 1000) {
+    if (
+      key === this.lastAppliedKey &&
+      Date.now() - this.lastAppliedAt < DUPLICATE_OPERATION_THRESHOLD_MS
+    ) {
       return;
     }
 
@@ -365,20 +370,19 @@ export default class SelectionHighlighterPlugin extends Plugin {
 
   private async applyReadingModeHighlight(view: MarkdownView) {
     const file = view.file;
-    if (!(file instanceof TFile) || !this.isReadingModeSelection(view)) return;
+    if (!(file instanceof TFile)) return;
 
-    const selectedText = window.getSelection()?.toString();
-    if (!selectedText || selectedText.trim() === "") return;
+    const readingSelection = this.getReadingModeSelection(view);
+    if (!readingSelection) return;
 
     this.isApplying = true;
     try {
-      const selectedHighlight = this.isSelectionInsideRenderedHighlight();
-
       await this.app.vault.process(file, (data) => {
         const match = this.getReadingModeEdit(
           data,
-          selectedText,
-          selectedHighlight,
+          readingSelection.text,
+          readingSelection.selectedHighlight,
+          readingSelection.occurrenceIndex,
         );
         if (!match) return data;
         return (
@@ -393,24 +397,36 @@ export default class SelectionHighlighterPlugin extends Plugin {
     }
   }
 
-  private isReadingModeSelection(view: MarkdownView) {
+  private getReadingModeSelection(view: MarkdownView) {
     const selection = window.getSelection();
     if (
       !selection ||
       selection.rangeCount === 0 ||
       selection.toString().trim() === ""
     ) {
-      return false;
+      return null;
     }
 
     const container = view.previewMode?.containerEl;
-    if (!container) return false;
+    if (!container) return null;
 
     const range = selection.getRangeAt(0);
     const node = range.commonAncestorContainer;
-    return container.contains(
-      node instanceof HTMLElement ? node : node.parentElement,
-    );
+    const element = node instanceof HTMLElement ? node : node.parentElement;
+    if (!container.contains(element)) return null;
+
+    const prefixRange = range.cloneRange();
+    prefixRange.selectNodeContents(container);
+    prefixRange.setEnd(range.startContainer, range.startOffset);
+
+    return {
+      text: selection.toString(),
+      selectedHighlight: !!element?.closest("mark"),
+      occurrenceIndex: this.countOccurrences(
+        prefixRange.toString(),
+        selection.toString().trim(),
+      ),
+    };
   }
 
   private getHighlightEdit(
@@ -457,10 +473,15 @@ export default class SelectionHighlighterPlugin extends Plugin {
     value: string,
     selectedText: string,
     selectedHighlight: boolean,
+    occurrenceIndex: number,
   ) {
     const text = selectedText.trim();
     const highlightedText = `==${text}==`;
-    const highlightedIndex = value.indexOf(highlightedText);
+    const highlightedIndex = this.findNthOccurrence(
+      value,
+      highlightedText,
+      occurrenceIndex,
+    );
 
     if (highlightedIndex !== -1 && selectedHighlight) {
       if (this.settings.repeatedSelectionBehavior === "expand") {
@@ -474,7 +495,11 @@ export default class SelectionHighlighterPlugin extends Plugin {
       };
     }
 
-    const exactIndex = value.indexOf(selectedText);
+    const exactIndex = this.findNthUnmarkedOccurrence(
+      value,
+      selectedText,
+      occurrenceIndex,
+    );
     if (exactIndex !== -1) {
       return {
         fromOffset: exactIndex,
@@ -483,7 +508,11 @@ export default class SelectionHighlighterPlugin extends Plugin {
       };
     }
 
-    const trimmedIndex = value.indexOf(text);
+    const trimmedIndex = this.findNthUnmarkedOccurrence(
+      value,
+      text,
+      occurrenceIndex,
+    );
     if (trimmedIndex !== -1) {
       return {
         fromOffset: trimmedIndex,
@@ -496,15 +525,68 @@ export default class SelectionHighlighterPlugin extends Plugin {
     return null;
   }
 
-  private isSelectionInsideRenderedHighlight() {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return false;
+  private countOccurrences(value: string, needle: string) {
+    if (needle === "") return 0;
 
-    const range = selection.getRangeAt(0);
-    const node = range.commonAncestorContainer;
-    const element = node instanceof HTMLElement ? node : node.parentElement;
+    let count = 0;
+    let fromIndex = 0;
+    while (fromIndex < value.length) {
+      const index = value.indexOf(needle, fromIndex);
+      if (index === -1) break;
 
-    return !!element?.closest("mark");
+      count++;
+      fromIndex = index + needle.length;
+    }
+
+    return count;
+  }
+
+  private findNthOccurrence(
+    value: string,
+    needle: string,
+    occurrenceIndex: number,
+  ) {
+    if (needle === "") return -1;
+
+    let seen = 0;
+    let fromIndex = 0;
+    while (fromIndex < value.length) {
+      const index = value.indexOf(needle, fromIndex);
+      if (index === -1) return -1;
+      if (seen === occurrenceIndex) return index;
+
+      seen++;
+      fromIndex = index + needle.length;
+    }
+
+    return -1;
+  }
+
+  private findNthUnmarkedOccurrence(
+    value: string,
+    needle: string,
+    occurrenceIndex: number,
+  ) {
+    if (needle === "") return -1;
+
+    let seen = 0;
+    let fromIndex = 0;
+    while (fromIndex < value.length) {
+      const index = value.indexOf(needle, fromIndex);
+      if (index === -1) return -1;
+
+      const isMarked =
+        value.slice(index - 2, index) === "==" &&
+        value.slice(index + needle.length, index + needle.length + 2) === "==";
+      if (!isMarked) {
+        if (seen === occurrenceIndex) return index;
+        seen++;
+      }
+
+      fromIndex = index + needle.length;
+    }
+
+    return -1;
   }
 
   private wrapSelectedText(selection: string) {
@@ -512,7 +594,7 @@ export default class SelectionHighlighterPlugin extends Plugin {
     const trailLen = selection.length - selection.trimEnd().length;
     const leading = selection.slice(0, leadLen);
     const trailing = trailLen > 0 ? selection.slice(-trailLen) : "";
-    const trimmed = selection.trim().replace(/==([^=]+)==/g, "$1");
+    const trimmed = selection.trim().split("==").join("");
 
     return `${leading}==${trimmed}==${trailing}`;
   }
@@ -549,7 +631,7 @@ color: inherit;
   }
 
   private sanitizeColor(value: string) {
-    return /^#[0-9a-fA-F]{6}$/.test(value) ? value : DEFAULT_HIGHLIGHT_COLOR;
+    return HEX_COLOR_PATTERN.test(value) ? value : DEFAULT_HIGHLIGHT_COLOR;
   }
 
   // -----------------------------------------------------------------------
